@@ -7,6 +7,7 @@ fn format_type(r#type: &Type) -> String {
         Type::Int => "int",
         Type::Float32 => "float32",
         Type::Float64 => "float64",
+        Type::Bool => "bool",
     }
     .to_string()
 }
@@ -90,20 +91,24 @@ fn format_code_block(code: &Vec<Statement>, indent: usize) -> String {
 fn format_statement(statement: &Statement, indent: usize) -> String {
     " ".repeat(indent)
         + &match statement {
-            Statement::Assignment(name, r#type, expr) => format!(
+            Statement::Assignment {
+                name,
+                var_type,
+                expr,
+            } => format!(
                 "var {} {} = {}",
                 name,
-                format_type(r#type),
+                format_type(var_type),
                 format_expression(expr)
             ),
-            Statement::If(cond, code) => format!(
+            Statement::If { cond, block } => format!(
                 "if {} {}",
                 format_expression(cond),
-                format_code_block(code, indent + 4)
+                format_code_block(block, indent + 4)
             ),
-            Statement::Call(expr, args) => format!(
+            Statement::Call { func, args } => format!(
                 "{}({})",
-                format_expression(expr),
+                format_expression(func),
                 args.iter()
                     .map(format_expression)
                     .collect::<Vec<String>>()
@@ -115,14 +120,15 @@ fn format_statement(statement: &Statement, indent: usize) -> String {
 
 fn format_expression(expr: &Expression) -> String {
     match expr {
-        Expression::True => "true".to_string(),
-        Expression::False => "false".to_string(),
-        Expression::Name(name) => name.clone(),
-        Expression::Literal(_, value) => value.clone(),
-        Expression::BinaryOp(bop, left, right) => format!(
+        Expression::Name { name, .. } => name.clone(),
+        Expression::Literal {expr_type, value } => match expr_type {
+            Type::Bool => (if value == "1" { "true" } else { "false" }).to_string(),
+            _ => value.clone(),
+        },
+        Expression::BinaryOp { op, left, right, ..} => format!(
             "{} {} {}",
             format_expression(left),
-            format_bop(bop),
+            format_bop(op),
             format_expression(right)
         ),
     }
