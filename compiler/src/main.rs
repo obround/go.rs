@@ -61,12 +61,6 @@ fn main() {
                         }],
                     },
                 },
-                // Statement::Return {
-                //     expr: Expression::Literal {
-                //         expr_type: Type::Int,
-                //         value: "0".to_string(),
-                //     },
-                // },
             ],
         }],
     };

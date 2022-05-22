@@ -4,6 +4,7 @@ use crate::ast::{BinaryOp::*, Expression, FuncDef, Program, Statement, Type};
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::Module;
+use inkwell::passes::{PassManager, PassManagerBuilder};
 use inkwell::targets::{
     CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine,
 };
@@ -38,10 +39,18 @@ impl<'ctx> CodeGen<'ctx> {
                 CodeModel::Default,
             )
             .expect("unable to create target machine");
-
         target_machine
             .write_to_file(&self.module, FileType::Object, Path::new(obj_file_name))
             .expect("unable to write module to file");
+    }
+
+    pub fn optimize(&self, opt_level: OptimizationLevel) {
+        let pass_manager_builder = PassManagerBuilder::create();
+        pass_manager_builder.set_optimization_level(opt_level);
+
+        let pass_manager = PassManager::create(());
+        pass_manager_builder.populate_module_pass_manager(&pass_manager);
+        pass_manager.run_on(&self.module);
     }
 
     pub fn gen_program(&mut self, program: &Program) {

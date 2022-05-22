@@ -4,8 +4,8 @@ pub mod pretty_printer;
 use ast::*;
 use codegen::CodeGen;
 use inkwell::module::Module;
-use inkwell::AddressSpace;
 use inkwell::{context::Context, module::Linkage};
+use inkwell::{AddressSpace, OptimizationLevel};
 use std::collections::HashMap;
 use std::fs;
 use std::process::Command;
@@ -42,6 +42,7 @@ pub fn compile_aot(program: &Program, out_path: &str) -> String {
         symbol_table: (HashMap::new()),
     };
     codegen.gen_program(program);
+    codegen.optimize(OptimizationLevel::Aggressive);
     // Create directory `output` if it doesn't already exist
     fs::create_dir_all("output/").expect("unable to create output/");
     // Generate object file
@@ -64,6 +65,7 @@ pub fn compile_aot(program: &Program, out_path: &str) -> String {
     // Link runtime and package
     let link_runtime = Command::new("clang")
         .args(&[
+            "-flto",
             "target/debug/libruntime.a",
             &format!("output/{}.o", program.package_name),
             "-o",
