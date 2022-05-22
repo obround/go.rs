@@ -1,4 +1,4 @@
-// Runtime functions for go.rs
+//! Runtime functions for go.rs.
 
 extern crate libc;
 

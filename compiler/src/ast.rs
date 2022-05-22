@@ -1,32 +1,48 @@
-// Structs and enums that will store the output of the Go parser allowing for LLVM code generation
+//! Structs and enums that will store the output of the Go parser,
+//! facilitating LLVM code generation.
 
 use inkwell::{context::Context, types::BasicTypeEnum, AddressSpace};
 
+/// A block of code (which is a vector of statements)
 pub type CodeBlock = Vec<Statement>;
+/// Of the form `[(name, type), ...]`
 pub type Params = Vec<(String, Type)>;
 
+/// The top-level go package.
 #[derive(Debug)]
 pub struct Program {
-    pub package_name: String, // package package_name
-    pub imports: Vec<String>, // import (mod_1, ..)
+    /// `package package_name`
+    pub package_name: String,
+    /// `import (mod_1, ..)`
+    pub imports: Vec<String>,
     pub functions: Vec<FuncDef>,
 }
 
+/// A function in the go package. If `return_value` is `None`, then
+/// the function is of type `void`.
 #[derive(Debug)]
 pub struct FuncDef {
     pub name: String,
-    pub params: Params,            // (name1 type1, name2 type2, ..)
-    pub return_type: Option<Type>, // returning is optional
+    /// `(name1 type1, name2 type2, ..)`
+    pub params: Params,
+    pub return_type: Option<Type>,
     pub code: CodeBlock,
 }
 
+/// Currently, only some go types are supported:
+/// * `go_type` (`llvm_type`)
+/// * `int` (`i64`)
+/// * `bool` (`i1`)
+/// * `float32` (`f32`)
+/// * `float64` (`f64`)
+/// * `string` (`i8*`)
 #[derive(Debug, PartialEq, Eq)]
 pub enum Type {
-    Int,      // i64
-    Bool,     // i1
-    Float32,  // f32
-    Float64,  // f64
-    GoString, // string
+    Int,
+    Bool,
+    Float32,
+    Float64,
+    GoString,
 }
 
 #[derive(Debug)]
@@ -35,7 +51,8 @@ pub enum Expression {
         expr_type: Type,
         name: String,
     },
-    // NOTE: If the literal is a bool, then the value is 1 for true and 0 for false
+    /// Something like an integer of float. Note that if the literal is a bool,
+    /// then the value is either 0 for false, or 1 for true
     Literal {
         expr_type: Type,
         value: String,
@@ -48,46 +65,55 @@ pub enum Expression {
     },
     Call {
         expr_type: Option<Type>,
-        func: String, // String for now; Later on maybe Box<Expression>
+        /// Currently you only call a function, not an expression that
+        /// evaluates to a function (e.g. closure, methods, etc.)
+        func: String,
         args: Vec<Expression>,
     },
 }
 
 #[derive(Debug)]
 pub enum BinaryOp {
-    Add, // +
-    Sub, // -
-    Mul, // *
-    Div, // /
-    Eq,  // ==
-    Neq, // !=
-    Ge,  // >
-    Le,  // <
-    Geq, // >=
-    Leq, // <=
+    /// +
+    Add,
+    /// \-
+    Sub,
+    /// \*
+    Mul,
+    /// /
+    Div,
+    /// ==
+    Eq,
+    /// !=
+    Neq,
+    /// \>
+    Ge,
+    /// \<
+    Le,
+    /// \>=
+    Geq,
+    /// \<=
+    Leq,
 }
 
 #[derive(Debug)]
 pub enum Statement {
+    /// `var <name> <var_type> = <expr>`
     Assignment {
         name: String,
         var_type: Type,
         expr: Expression,
     },
-    If {
-        cond: Expression,
-        block: CodeBlock,
-    },
-    Return {
-        expr: Expression,
-    },
-    Expression {
-        expr: Expression,
-    },
+    /// `if <cond> { <block> }`
+    If { cond: Expression, block: CodeBlock },
+    /// `return <expr>`
+    Return { expr: Expression },
+    /// `<expr>`
+    Expression { expr: Expression },
 }
 
 impl Type {
-    // Convert to an LLVM type
+    /// Convert to an LLVM type. Very useful during code generation
     pub fn to_llvm<'ctx>(&self, context: &'ctx Context) -> BasicTypeEnum<'ctx> {
         match self {
             Type::Int => BasicTypeEnum::IntType(context.i64_type()),
@@ -99,19 +125,10 @@ impl Type {
             }
         }
     }
-
-    pub fn get_num_precision(&self) -> usize {
-        match self {
-            Type::Int => 64,
-            Type::Float32 => 32,
-            Type::Float64 => 64,
-            Type::Bool => 1,
-            _ => panic!("get_num_precision is not supported for string"),
-        }
-    }
 }
 
 impl Expression {
+    /// Returns the type the expression is tagged with
     pub fn get_type(&self) -> &Type {
         match self {
             Expression::Name { expr_type, .. } => expr_type,

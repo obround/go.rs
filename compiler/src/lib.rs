@@ -1,3 +1,5 @@
+//! Ties all parts of the compiler together
+
 pub mod ast;
 pub mod codegen;
 pub mod pretty_printer;
