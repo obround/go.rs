@@ -1,7 +1,2 @@
-[package]
-name = "llvmgo"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-inkwell = { git = "https://github.com/TheDan64/inkwell", branch = "master", features = ["llvm13-0"] }
+[workspace]
+members = ["compiler", "runtime"]

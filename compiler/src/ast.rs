@@ -1,6 +1,6 @@
 // Structs and enums that will store the output of the Go parser allowing for LLVM code generation
 
-use inkwell::{context::Context, types::BasicTypeEnum};
+use inkwell::{context::Context, types::BasicTypeEnum, AddressSpace};
 
 pub type CodeBlock = Vec<Statement>;
 pub type Params = Vec<(String, Type)>;
@@ -22,10 +22,11 @@ pub struct FuncDef {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Type {
-    Int,     // i64
-    Bool,    // i1
-    Float32, // f32
-    Float64, // f64
+    Int,      // i64
+    Bool,     // i1
+    Float32,  // f32
+    Float64,  // f64
+    GoString, // string
 }
 
 #[derive(Debug)]
@@ -44,6 +45,11 @@ pub enum Expression {
         op: BinaryOp,
         left: Box<Expression>,
         right: Box<Expression>,
+    },
+    Call {
+        expr_type: Option<Type>,
+        func: String, // String for now; Later on maybe Box<Expression>
+        args: Vec<Expression>,
     },
 }
 
@@ -72,11 +78,12 @@ pub enum Statement {
         cond: Expression,
         block: CodeBlock,
     },
-    Call {
-        func: Expression,
-        args: Vec<Expression>,
+    Return {
+        expr: Expression,
     },
-    Return(Expression),
+    Expression {
+        expr: Expression,
+    },
 }
 
 impl Type {
@@ -87,15 +94,19 @@ impl Type {
             Type::Float32 => BasicTypeEnum::FloatType(context.f32_type()),
             Type::Float64 => BasicTypeEnum::FloatType(context.f64_type()),
             Type::Bool => BasicTypeEnum::IntType(context.bool_type()),
+            Type::GoString => {
+                BasicTypeEnum::PointerType(context.i8_type().ptr_type(AddressSpace::Generic))
+            }
         }
     }
 
-    pub fn get_precision(&self) -> usize {
+    pub fn get_num_precision(&self) -> usize {
         match self {
             Type::Int => 64,
             Type::Float32 => 32,
             Type::Float64 => 64,
             Type::Bool => 1,
+            _ => panic!("get_num_precision is not supported for string"),
         }
     }
 }
@@ -106,6 +117,9 @@ impl Expression {
             Expression::Name { expr_type, .. } => expr_type,
             Expression::Literal { expr_type, .. } => expr_type,
             Expression::BinaryOp { expr_type, .. } => expr_type,
+            Expression::Call { expr_type, .. } => expr_type
+                .as_ref()
+                .expect("Expression::get_type() should not be called on a void function"),
         }
     }
 }

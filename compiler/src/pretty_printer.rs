@@ -8,6 +8,7 @@ fn format_type(r#type: &Type) -> String {
         Type::Float32 => "float32",
         Type::Float64 => "float64",
         Type::Bool => "bool",
+        Type::GoString => "string",
     }
     .to_string()
 }
@@ -46,7 +47,7 @@ fn push_indent(indent: usize, s: &mut String) {
 
 pub fn format_program(program: &Program) -> String {
     let mut s = format!("package {}\n\n", program.package_name);
-    if program.imports.len() > 0 {
+    if !program.imports.is_empty() {
         s.push_str(&format!("import (\"{}\")\n\n", program.imports.join(", ")));
     }
     s.push_str(
@@ -67,9 +68,9 @@ fn format_funcdef(funcdef: &FuncDef) -> String {
         return_type,
         code,
     } = funcdef;
-    let mut s = format!("func {}({}) ", name, format_params(&params));
+    let mut s = format!("func {}({}) ", name, format_params(params));
     if let Some(r#type) = return_type {
-        s.push_str(&(format_type(r#type) + &" "));
+        s.push_str(&(format_type(r#type) + " "));
     }
     s.push_str(&format_code_block(code, 0));
     s
@@ -80,7 +81,7 @@ fn format_code_block(code: &Vec<Statement>, indent: usize) -> String {
 
     for statement in code {
         s.push_str(&format_statement(statement, indent + 4));
-        s.push_str("\n");
+        s.push('\n');
     }
 
     push_indent(indent, &mut s);
@@ -106,30 +107,34 @@ fn format_statement(statement: &Statement, indent: usize) -> String {
                 format_expression(cond),
                 format_code_block(block, indent + 4)
             ),
-            Statement::Call { func, args } => format!(
-                "{}({})",
-                format_expression(func),
-                args.iter()
-                    .map(format_expression)
-                    .collect::<Vec<String>>()
-                    .join(", ")
-            ),
-            Statement::Return(expr) => format!("return {}", format_expression(expr)),
+            Statement::Return { expr } => format!("return {}", format_expression(expr)),
+            Statement::Expression { expr } => format_expression(expr),
         }
 }
 
 fn format_expression(expr: &Expression) -> String {
     match expr {
         Expression::Name { name, .. } => name.clone(),
-        Expression::Literal {expr_type, value } => match expr_type {
+        Expression::Literal { expr_type, value } => match expr_type {
             Type::Bool => (if value == "1" { "true" } else { "false" }).to_string(),
+            Type::GoString => format!("\"{}\"", value),
             _ => value.clone(),
         },
-        Expression::BinaryOp { op, left, right, ..} => format!(
+        Expression::BinaryOp {
+            op, left, right, ..
+        } => format!(
             "{} {} {}",
             format_expression(left),
             format_bop(op),
             format_expression(right)
+        ),
+        Expression::Call { func, args, .. } => format!(
+            "{}({})",
+            func,
+            args.iter()
+                .map(format_expression)
+                .collect::<Vec<String>>()
+                .join(", ")
         ),
     }
 }

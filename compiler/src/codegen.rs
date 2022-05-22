@@ -3,24 +3,47 @@
 use crate::ast::{BinaryOp::*, Expression, FuncDef, Program, Statement, Type};
 use inkwell::builder::Builder;
 use inkwell::context::Context;
-use inkwell::execution_engine::ExecutionEngine;
 use inkwell::module::Module;
-use inkwell::types::{BasicMetadataTypeEnum, BasicType};
+use inkwell::targets::{
+    CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine,
+};
+use inkwell::types::BasicType;
 use inkwell::values::{BasicValue, BasicValueEnum, PointerValue};
-use inkwell::{FloatPredicate, IntPredicate};
+use inkwell::{FloatPredicate, IntPredicate, OptimizationLevel};
 use std::collections::HashMap;
+use std::path::Path;
 
-pub struct CodeGen<'a, 'ctx> {
+pub struct CodeGen<'ctx> {
     pub context: &'ctx Context,
     pub module: Module<'ctx>,
     pub builder: Builder<'ctx>,
-    pub execution_engine: ExecutionEngine<'ctx>,
-    pub program: &'a Program,
 
     pub symbol_table: HashMap<String, PointerValue<'ctx>>,
 }
 
-impl<'a, 'ctx> CodeGen<'a, 'ctx> {
+impl<'ctx> CodeGen<'ctx> {
+    pub fn to_object_file(&self, obj_file_name: &str) {
+        Target::initialize_all(&InitializationConfig::default());
+        let triple = TargetMachine::get_default_triple();
+        let target =
+            Target::from_triple(&triple).expect("couldn't create target from target triple");
+
+        let target_machine = target
+            .create_target_machine(
+                &triple,
+                "generic",
+                "",
+                OptimizationLevel::None,
+                RelocMode::Default,
+                CodeModel::Default,
+            )
+            .expect("unable to create target machine");
+
+        target_machine
+            .write_to_file(&self.module, FileType::Object, Path::new(obj_file_name))
+            .expect("unable to write module to file");
+    }
+
     pub fn gen_program(&mut self, program: &Program) {
         for func in &program.functions {
             self.gen_function(func);
@@ -38,7 +61,7 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
         let llvm_params = params
             .iter()
             .map(|(_, x)| x.to_llvm(self.context).into())
-            .collect::<Vec<BasicMetadataTypeEnum>>();
+            .collect::<Vec<_>>();
         // The signature the function in LLVM terms
         let llvm_fn_sig = match return_type {
             Some(x) => x.to_llvm(self.context).fn_type(&llvm_params, false),
@@ -49,7 +72,7 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
         self.builder.position_at_end(entry);
         // Set param names, an generate alloca and store instructions for them
         for (param, (param_name, param_type)) in function.get_param_iter().zip(params) {
-            param.set_name(&param_name);
+            param.set_name(param_name);
             let alloca = self
                 .builder
                 .build_alloca(param_type.to_llvm(self.context), name);
@@ -59,6 +82,9 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
         // Generate function body
         for stmt in code {
             self.gen_statement(stmt);
+        }
+        if return_type.is_none() {
+            self.builder.build_return(None);
         }
     }
 
@@ -75,7 +101,13 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                     .build_alloca(var_type.to_llvm(self.context), name);
                 self.builder.build_store(alloca, rhs);
                 self.symbol_table.insert(name.clone(), alloca);
-            },
+            }
+            Statement::Return { expr } => {
+                self.builder.build_return(Some(&self.gen_expr(expr)));
+            }
+            Statement::Expression { expr } => {
+                self.gen_expr(expr);
+            }
             _ => panic!("REMOVE AFTER STMT IMPLEMENTED"),
         };
     }
@@ -102,6 +134,10 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                         .bool_type()
                         .const_int(value.parse::<u64>().unwrap(), true),
                 ),
+                Type::GoString => self
+                    .builder
+                    .build_global_string_ptr(value, "str")
+                    .as_basic_value_enum(),
             },
             Expression::BinaryOp {
                 op, left, right, ..
@@ -225,6 +261,31 @@ impl<'a, 'ctx> CodeGen<'a, 'ctx> {
                 Some(var) => self.builder.build_load(*var, name),
                 None => panic!(
                     "reference to undefined variable (should have been caught by semantic checker)"
+                ),
+            },
+            Expression::Call { func, args, .. } => match self.module.get_function(func) {
+                Some(func_value) => {
+                    let compiled_args = args
+                        .iter()
+                        .map(|x| self.gen_expr(x).into())
+                        .collect::<Vec<_>>();
+                    match self
+                        .builder
+                        .build_call(func_value, compiled_args.as_slice(), "calltmp")
+                        .try_as_basic_value()
+                        .left()
+                    {
+                        Some(value) => value,
+                        // Because we got to return something from gen_expr, we return the
+                        // magic number; It isn't used, so nothing lost there
+                        None => {
+                            BasicValueEnum::IntValue(self.context.i64_type().const_int(42, true))
+                        }
+                    }
+                }
+                None => panic!(
+                    "function {} not defined (should have been caught by semantic checker)",
+                    func
                 ),
             },
         }
