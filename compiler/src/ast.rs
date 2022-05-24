@@ -1,5 +1,5 @@
-//! Structs and enums that will store the output of the Go parser,
-//! facilitating LLVM code generation.
+//! Structs and enums that will store the output of the Go parser, facilitating LLVM code
+//! generation.
 
 use inkwell::{context::Context, types::BasicTypeEnum, AddressSpace};
 

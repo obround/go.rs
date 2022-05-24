@@ -12,19 +12,9 @@ fn main() {
                 Statement::Assignment {
                     name: "x".to_string(),
                     var_type: Type::Int,
-                    expr: Expression::Call {
-                        expr_type: Some(Type::Int),
-                        func: "add".to_string(),
-                        args: vec![
-                            Expression::Literal {
-                                expr_type: Type::Int,
-                                value: "2".to_string(),
-                            },
-                            Expression::Literal {
-                                expr_type: Type::Int,
-                                value: "3".to_string(),
-                            },
-                        ],
+                    expr: Expression::Literal {
+                        expr_type: Type::Int,
+                        value: "0".to_string(),
                     },
                 },
                 Statement::Assignment {
@@ -32,35 +22,62 @@ fn main() {
                     var_type: Type::Int,
                     expr: Expression::BinaryOp {
                         expr_type: Type::Int,
-                        op: BinaryOp::Mul,
-                        left: Box::new(Expression::Name {
+                        op: BinaryOp::Div,
+                        left: Box::new(Expression::Literal {
+                            expr_type: Type::Int,
+                            value: "5".to_string(),
+                        }),
+                        right: Box::new(Expression::Name {
                             expr_type: Type::Int,
                             name: "x".to_string(),
-                        }),
-                        right: Box::new(Expression::Literal {
-                            expr_type: Type::Int,
-                            value: "2".to_string(),
                         }),
                     },
                 },
                 Statement::Assignment {
-                    name: "z".to_string(),
+                    name: "lit".to_string(),
                     var_type: Type::GoString,
                     expr: Expression::Literal {
                         expr_type: Type::GoString,
-                        value: "hello world!".to_string(),
+                        value: "hello world! my number is ".to_string(),
                     },
                 },
                 Statement::Expression {
                     expr: Expression::Call {
                         expr_type: None,
-                        func: "print_str".to_string(),
+                        func: "__print_gostring".to_string(),
                         args: vec![Expression::Name {
                             expr_type: Type::GoString,
-                            name: "z".to_string(),
+                            name: "lit".to_string(),
                         }],
                     },
                 },
+                Statement::Expression {
+                    expr: Expression::Call {
+                        expr_type: None,
+                        func: "__print_int".to_string(),
+                        args: vec![Expression::Name {
+                            expr_type: Type::GoString,
+                            name: "y".to_string(),
+                        }],
+                    },
+                },
+                Statement::Expression {
+                    expr: Expression::Call {
+                        expr_type: None,
+                        func: "__print_gostring".to_string(),
+                        args: vec![Expression::Literal {
+                            expr_type: Type::GoString,
+                            value: "\\n".to_string(),
+                        }],
+                    },
+                },
+                // Statement::Expression {
+                //     expr: Expression::Call {
+                //         expr_type: None,
+                //         func: "__flush_stdout".to_string(),
+                //         args: vec![],
+                //     },
+                // },
             ],
         }],
     };

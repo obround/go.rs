@@ -1,11 +1,12 @@
 //! Visit the AST and generate the LLVM IR
-//! Once the AST is built, the IR is generated (optionally optimized)
-//! and can be written to an object file.
+//! Once the AST is built, the IR is generated (optionally optimized) and can be written to an
+//! object file.
 
 use crate::ast::{
     BinaryOp::{self, *},
     Expression, FuncDef, Program, Statement, Type,
 };
+use crate::errors::*;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::Module;
@@ -14,7 +15,7 @@ use inkwell::targets::{
     CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine,
 };
 use inkwell::types::BasicType;
-use inkwell::values::{BasicValue, BasicValueEnum, PointerValue};
+use inkwell::values::{BasicValue, BasicValueEnum, FunctionValue, PointerValue};
 use inkwell::{FloatPredicate, IntPredicate, OptimizationLevel};
 use std::collections::HashMap;
 use std::path::Path;
@@ -25,9 +26,20 @@ pub struct CodeGen<'ctx> {
     pub builder: Builder<'ctx>,
 
     pub symbol_table: HashMap<String, PointerValue<'ctx>>,
+    current_function: Option<FunctionValue<'ctx>>,
 }
 
 impl<'ctx> CodeGen<'ctx> {
+    pub fn new(context: &'ctx Context) -> Self {
+        Self {
+            context,
+            module: context.create_module("main"),
+            builder: context.create_builder(),
+            symbol_table: HashMap::new(),
+            current_function: None,
+        }
+    }
+
     pub fn to_object_file(&self, obj_file_name: &str) {
         Target::initialize_all(&InitializationConfig::default());
         let triple = TargetMachine::get_default_triple();
@@ -84,6 +96,7 @@ impl<'ctx> CodeGen<'ctx> {
         let function = self.module.add_function(name, llvm_fn_sig, None);
         let entry = self.context.append_basic_block(function, "entry");
         self.builder.position_at_end(entry);
+        self.current_function = Some(function);
         // Set param names, an generate alloca and store instructions for them
         for (param, (param_name, param_type)) in function.get_param_iter().zip(params) {
             param.set_name(param_name);
@@ -170,17 +183,12 @@ impl<'ctx> CodeGen<'ctx> {
             ),
             Type::GoString => self
                 .builder
-                .build_global_string_ptr(value, "str")
+                .build_global_string_ptr(&value.replace("\\n", "\n"), "str")
                 .as_basic_value_enum(),
         }
     }
 
-    fn gen_binop(
-        &self,
-        op: &BinaryOp,
-        left: &Expression,
-        right: &Expression,
-    ) -> BasicValueEnum {
+    fn gen_binop(&self, op: &BinaryOp, left: &Expression, right: &Expression) -> BasicValueEnum {
         let left_gen = self.gen_expr(left);
         let right_gen = self.gen_expr(right);
         match (left_gen, right_gen) {
@@ -190,16 +198,38 @@ impl<'ctx> CodeGen<'ctx> {
                     Add => self.builder.build_int_add(lhs, rhs, "addtmp"),
                     Sub => self.builder.build_int_sub(lhs, rhs, "subtmp"),
                     Mul => self.builder.build_int_mul(lhs, rhs, "multmp"),
-                    // TODO: Add div by zero check (sdiv results in undefined behavior in this case)
-                    Div => self.builder.build_int_signed_div(lhs, rhs, "divtmp"),
-                    Eq => {
-                        self.builder
-                            .build_int_compare(IntPredicate::EQ, lhs, rhs, "eqtmp")
-                    }
-                    Neq => {
-                        self.builder
-                            .build_int_compare(IntPredicate::NE, lhs, rhs, "neqtmp")
-                    }
+                    Div => {
+                        // Check if we are dividing by zero (results in undefined behavior)
+                        let is_not_div_by_zero = self.builder.build_int_compare(
+                            IntPredicate::NE,
+                            rhs,
+                            self.context.i64_type().const_int(0, true),
+                            "is_not_div_by_zero"
+                        );
+                        let parent_bb = self.current_function.unwrap();
+                        let panic_bb = self.context.append_basic_block(parent_bb, "panic_bb");
+                        let cont_bb = self.context.append_basic_block(parent_bb, "cont_bb");
+                        self.builder.build_conditional_branch(is_not_div_by_zero, cont_bb, panic_bb);
+
+                        // panic_bb basic block
+                        self.builder.position_at_end(panic_bb);
+                        let error_msg = self.builder
+                            .build_global_string_ptr(ERR_DIV_BY_ZERO, "div_by_zero")
+                            .as_basic_value_enum();
+                        self.builder.build_call(
+                            self.module.get_function("__gopanic").unwrap(),
+                            &[error_msg.into()],
+                            "panic"
+                        );
+                        // Terminator instruction
+                        self.builder.build_unreachable();
+
+                        // If all is fine, continue at cont_bb
+                        self.builder.position_at_end(cont_bb);
+                        self.builder.build_int_signed_div(lhs, rhs, "divtmp")
+                    },
+                    Eq => self.builder.build_int_compare(IntPredicate::EQ, lhs, rhs, "eqtmp"),
+                    Neq => self.builder.build_int_compare(IntPredicate::NE, lhs, rhs, "neqtmp"),
                     Ge => {
                         self.builder
                             .build_int_compare(IntPredicate::SGT, lhs, rhs, "getmp")
