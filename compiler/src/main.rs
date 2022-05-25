@@ -14,7 +14,7 @@ fn main() {
                     var_type: Type::Int,
                     expr: Expression::Literal {
                         expr_type: Type::Int,
-                        value: "0".to_string(),
+                        value: "10".to_string(),
                     },
                 },
                 Statement::Assignment {
@@ -70,6 +70,52 @@ fn main() {
                             value: "\\n".to_string(),
                         }],
                     },
+                },
+                Statement::If {
+                    cond: Expression::BinaryOp {
+                        expr_type: Type::Bool,
+                        op: BinaryOp::Eq,
+                        left: Box::new(Expression::Literal {
+                            expr_type: Type::Float32,
+                            value: "5".to_string(),
+                        }),
+                        right: Box::new(Expression::Literal {
+                            expr_type: Type::Float32,
+                            value: "5".to_string(),
+                        }),
+                    },
+                    then_block: vec![
+                        Statement::Expression {
+                            expr: Expression::Call {
+                                expr_type: None,
+                                func: "__print_gostring".to_string(),
+                                args: vec![Expression::Literal {
+                                    expr_type: Type::GoString,
+                                    value: "good ".to_string(),
+                                }],
+                            },
+                        },
+                        Statement::Expression {
+                            expr: Expression::Call {
+                                expr_type: None,
+                                func: "__print_gostring".to_string(),
+                                args: vec![Expression::Literal {
+                                    expr_type: Type::GoString,
+                                    value: "✓\\n".to_string(),
+                                }],
+                            },
+                        },
+                    ],
+                    else_block: vec![Statement::Expression {
+                        expr: Expression::Call {
+                            expr_type: None,
+                            func: "__print_gostring".to_string(),
+                            args: vec![Expression::Literal {
+                                expr_type: Type::GoString,
+                                value: "oops\\n".to_string(),
+                            }],
+                        },
+                    }],
                 },
                 // Statement::Expression {
                 //     expr: Expression::Call {

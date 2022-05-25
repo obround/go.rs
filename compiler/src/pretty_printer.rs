@@ -73,6 +73,7 @@ fn format_funcdef(funcdef: &FuncDef) -> String {
         s.push_str(&(format_type(r#type) + " "));
     }
     s.push_str(&format_code_block(code, 0));
+    s.push('\n');
     s
 }
 
@@ -85,7 +86,7 @@ fn format_code_block(code: &Vec<Statement>, indent: usize) -> String {
     }
 
     push_indent(indent, &mut s);
-    s.push_str("}\n");
+    s.push_str("}");
     s
 }
 
@@ -102,10 +103,11 @@ fn format_statement(statement: &Statement, indent: usize) -> String {
                 format_type(var_type),
                 format_expression(expr)
             ),
-            Statement::If { cond, block } => format!(
-                "if {} {}",
+            Statement::If { cond, then_block, else_block } => format!(
+                "if {} {} else {}\n",
                 format_expression(cond),
-                format_code_block(block, indent + 4)
+                format_code_block(then_block, indent),
+                format_code_block(else_block, indent)
             ),
             Statement::Return { expr } => format!("return {}", format_expression(expr)),
             Statement::Expression { expr } => format_expression(expr),

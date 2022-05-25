@@ -1,4 +1,8 @@
-//! Runtime functions for go.rs.
+//! Runtime functions for the generated binaries. The functions defined here are 'extern'ed, and
+//! later linked with the code.
+
+// TODO: Handle possible runtime panics that *rust* might invoke. E.g., the print! macro will panic
+// if it can't write to io::stdout(). Make sure that these error messages follow go's conventions.
 
 extern crate libc;
 

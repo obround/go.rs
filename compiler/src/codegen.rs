@@ -2,6 +2,11 @@
 //! Once the AST is built, the IR is generated (optionally optimized) and can be written to an
 //! object file.
 
+// TODO: Clean up the entire code, and make it idiomatic. This includes, but isn't limited to:
+//     - Properly handling errors with `Result`
+//     - Better documentation
+//     - Add tests (after the parser is implemented?)
+//     - Implement a better API?
 use crate::ast::{
     BinaryOp::{self, *},
     Expression, FuncDef, Program, Statement, Type,
@@ -25,7 +30,7 @@ pub struct CodeGen<'ctx> {
     pub module: Module<'ctx>,
     pub builder: Builder<'ctx>,
 
-    pub symbol_table: HashMap<String, PointerValue<'ctx>>,
+    symbol_table: HashMap<String, PointerValue<'ctx>>,
     current_function: Option<FunctionValue<'ctx>>,
 }
 
@@ -81,7 +86,7 @@ impl<'ctx> CodeGen<'ctx> {
             name,
             params,
             return_type,
-            code,
+            code: block,
         } = func;
         // The function parameter types
         let llvm_params = params
@@ -106,10 +111,8 @@ impl<'ctx> CodeGen<'ctx> {
             self.builder.build_store(alloca, param);
             self.symbol_table.insert(param_name.clone(), alloca);
         }
-        // Generate function body
-        for stmt in code {
-            self.gen_statement(stmt);
-        }
+        self.gen_block(block);
+        // We've got to return something, even if the function doesn't return
         if return_type.is_none() {
             self.builder.build_return(None);
         }
@@ -135,8 +138,18 @@ impl<'ctx> CodeGen<'ctx> {
             Statement::Expression { expr } => {
                 self.gen_expr(expr);
             }
-            _ => panic!("REMOVE AFTER STMT IMPLEMENTED"),
+            Statement::If {
+                cond,
+                then_block,
+                else_block,
+            } => self.gen_if(cond, then_block, else_block),
         };
+    }
+
+    fn gen_block(&mut self, block: &[Statement]) {
+        for stmt in block {
+            self.gen_statement(stmt);
+        }
     }
 
     fn gen_expr(&self, expr: &Expression) -> BasicValueEnum {
@@ -351,5 +364,31 @@ impl<'ctx> CodeGen<'ctx> {
                 func
             ),
         }
+    }
+
+    fn gen_if(&mut self, cond: &Expression, then_block: &[Statement], else_block: &[Statement]) {
+        let parent = self.current_function.unwrap();
+
+        let llvm_cond = self.gen_expr(cond).into_int_value();
+
+        let then_bb = self.context.append_basic_block(parent, "then_bb");
+        let else_bb = self.context.append_basic_block(parent, "else_bb");
+        let cont_bb = self.context.append_basic_block(parent, "cont_bb");
+
+        self.builder
+            .build_conditional_branch(llvm_cond, then_bb, else_bb);
+
+        // Then block
+        self.builder.position_at_end(then_bb);
+        self.gen_block(then_block);
+        self.builder.build_unconditional_branch(cont_bb);
+
+        // Else block
+        self.builder.position_at_end(else_bb);
+        self.gen_block(else_block);
+        self.builder.build_unconditional_branch(cont_bb);
+
+        // Merge/continuation block
+        self.builder.position_at_end(cont_bb);
     }
 }

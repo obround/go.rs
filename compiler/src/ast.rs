@@ -104,8 +104,8 @@ pub enum Statement {
         var_type: Type,
         expr: Expression,
     },
-    /// `if <cond> { <block> }`
-    If { cond: Expression, block: CodeBlock },
+    /// `if <cond> { <then_block> } else { <else_block2> }`
+    If { cond: Expression, then_block: CodeBlock, else_block: CodeBlock },
     /// `return <expr>`
     Return { expr: Expression },
     /// `<expr>`

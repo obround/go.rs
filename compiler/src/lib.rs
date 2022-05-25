@@ -12,6 +12,11 @@ use inkwell::{AddressSpace, OptimizationLevel};
 use std::fs;
 use std::process::Command;
 
+// TODO: Clean this steaming piece of garbage up. This includes, but isn't limited to:
+//     - Handle debug and release filepaths while linking with runtime
+//     - For the love of god, please handle stderr while compiling and linking runtime
+//     - Add a nice command line interface
+
 /// Adds an extern (runtime) function to the module. All the types must be `context.<my_type>()`.
 /// Here is the format of the function:
 ///
@@ -97,12 +102,10 @@ pub fn compile_aot(program: &Program, out_path: &str) -> String {
             "./runtime/Cargo.toml",
         ])
         .output();
-    // TODO: Handle stderr when compiling and linking runtime
     match compile_runtime {
         Ok(_) => {}
         Err(err) => panic!("{}", err),
     }
-    // TODO: Handle Debug and Release filepaths
     // Link runtime and package
     let link_runtime = Command::new("clang")
         .args(&[
