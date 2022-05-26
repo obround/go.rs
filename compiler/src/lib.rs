@@ -86,7 +86,9 @@ pub fn compile_aot(program: &Program, out_path: &str) -> String {
     // Add global (external) decelerations
     let mut codegen = CodeGen::new(&context);
     add_runtime(&codegen.module, &context);
-    codegen.gen_program(program);
+    if let Err(err) = codegen.gen_program(program) {
+        panic!("{}", err);
+    }
     codegen.optimize(OptimizationLevel::Aggressive);
 
     // Create directory `output` if it doesn't already exist
@@ -106,11 +108,12 @@ pub fn compile_aot(program: &Program, out_path: &str) -> String {
         Ok(_) => {}
         Err(err) => panic!("{}", err),
     }
-    // Link runtime and package
-    let link_runtime = Command::new("clang")
+    // Link runtime and package`
+    let link_runtime = Command::new("gcc")
         .args(&[
             "-flto",
-            "target/debug/libruntime.a",
+            "-dead_strip",
+            "runtime/target/release/libruntime.a",
             &format!("output/{}.o", program.package_name),
             "-o",
             out_path,

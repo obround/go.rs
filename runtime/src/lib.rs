@@ -13,24 +13,31 @@ use std::{
     process,
 };
 
-#[inline(always)]
-fn __local_go_panic(msg: &str) {
-    eprintln!("panic: {}", msg);
-    process::abort();
+macro_rules! __local_go_panic {
+    ($msg:expr) => {{
+        eprintln!("panic: {}", $msg);
+        process::abort();
+    }};
+}
+
+macro_rules! cstr_to_str {
+    ($msg:expr) => {
+        match CStr::from_ptr($msg).to_str() {
+            Ok(cstr) => cstr,
+            Err(_) => __local_go_panic!("unable to interpret passed string"),
+        }
+    };
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn __gopanic(msg: *const c_char) {
-    match CStr::from_ptr(msg).to_str() {
-        Ok(cstr) => __local_go_panic(cstr),
-        Err(_) => __local_go_panic("unable to print custom panic (due to incorrect string)"),
-    };
+    __local_go_panic!(cstr_to_str!(msg));
 }
 
 #[no_mangle]
 pub extern "C" fn __flush_stdout() {
     if io::stdout().flush().is_err() {
-        __local_go_panic("unable to flush to stdout");
+        __local_go_panic!("unable to flush to stdout");
     }
 }
 
@@ -56,8 +63,5 @@ pub unsafe extern "C" fn __print_float64(float: f64) {
 
 #[no_mangle]
 pub unsafe extern "C" fn __print_gostring(string: *const c_char) {
-    match CStr::from_ptr(string).to_str() {
-        Ok(cstr) => print!("{}", cstr),
-        Err(_) => __local_go_panic("unable to print (due to incorrect string)"),
-    };
+    print!("{}", cstr_to_str!(string));
 }

@@ -3,7 +3,6 @@
 //! object file.
 
 // TODO: Clean up the entire code, and make it idiomatic. This includes, but isn't limited to:
-//     - Properly handling errors with `Result`
 //     - Better documentation
 //     - Add tests (after the parser is implemented?)
 //     - Implement a better API?
@@ -45,11 +44,13 @@ impl<'ctx> CodeGen<'ctx> {
         }
     }
 
+    /// Outputs the generated program to an object file. The function `gen_program` must have been
+    /// called first. Optionally, the optimizer could also have been run.
     pub fn to_object_file(&self, obj_file_name: &str) {
         Target::initialize_all(&InitializationConfig::default());
         let triple = TargetMachine::get_default_triple();
         let target =
-            Target::from_triple(&triple).expect("couldn't create target from target triple");
+            Target::from_triple(&triple).expect("Couldn't create target from target triple");
 
         let target_machine = target
             .create_target_machine(
@@ -60,12 +61,14 @@ impl<'ctx> CodeGen<'ctx> {
                 RelocMode::Default,
                 CodeModel::Default,
             )
-            .expect("unable to create target machine");
+            .expect("Unable to create target machine");
         target_machine
             .write_to_file(&self.module, FileType::Object, Path::new(obj_file_name))
-            .expect("unable to write module to file");
+            .expect("Unable to write module to file");
     }
 
+    /// Optimizes the program at the specified level (e.g. all optimizations are turned on in
+    /// aggressive mode).
     pub fn optimize(&self, opt_level: OptimizationLevel) {
         let pass_manager_builder = PassManagerBuilder::create();
         pass_manager_builder.set_optimization_level(opt_level);
@@ -75,13 +78,15 @@ impl<'ctx> CodeGen<'ctx> {
         pass_manager.run_on(&self.module);
     }
 
-    pub fn gen_program(&mut self, program: &Program) {
+    /// Loops through all functions and generates their code
+    pub fn gen_program(&mut self, program: &Program) -> Result<(), &'static str> {
         for func in &program.functions {
-            self.gen_function(func);
+            self.gen_function(func)?;
         }
+        Ok(())
     }
 
-    fn gen_function(&mut self, func: &FuncDef) {
+    fn gen_function(&mut self, func: &FuncDef) -> Result<(), &'static str> {
         let FuncDef {
             name,
             params,
@@ -111,21 +116,29 @@ impl<'ctx> CodeGen<'ctx> {
             self.builder.build_store(alloca, param);
             self.symbol_table.insert(param_name.clone(), alloca);
         }
-        self.gen_block(block);
+        self.gen_block(block)?;
         // We've got to return something, even if the function doesn't return
         if return_type.is_none() {
             self.builder.build_return(None);
         }
+        Ok(())
     }
 
-    fn gen_statement(&mut self, stmt: &Statement) {
+    fn gen_block(&mut self, block: &[Statement]) -> Result<(), &'static str> {
+        for stmt in block {
+            self.gen_statement(stmt)?
+        }
+        Ok(())
+    }
+
+    fn gen_statement(&mut self, stmt: &Statement) -> Result<(), &'static str> {
         match stmt {
             Statement::Assignment {
                 name,
                 var_type,
                 expr,
             } => {
-                let rhs = self.gen_expr(expr);
+                let rhs = self.gen_expr(expr)?;
                 let alloca = self
                     .builder
                     .build_alloca(var_type.to_llvm(self.context), name);
@@ -133,81 +146,81 @@ impl<'ctx> CodeGen<'ctx> {
                 self.symbol_table.insert(name.clone(), alloca);
             }
             Statement::Return { expr } => {
-                self.builder.build_return(Some(&self.gen_expr(expr)));
+                self.builder.build_return(Some(&self.gen_expr(expr)?));
             }
             Statement::Expression { expr } => {
-                self.gen_expr(expr);
+                self.gen_expr(expr)?;
             }
             Statement::If {
                 cond,
                 then_block,
                 else_block,
-            } => self.gen_if(cond, then_block, else_block),
+            } => self.gen_if(cond, then_block, else_block)?,
         };
+        Ok(())
     }
 
-    fn gen_block(&mut self, block: &[Statement]) {
-        for stmt in block {
-            self.gen_statement(stmt);
-        }
-    }
-
-    fn gen_expr(&self, expr: &Expression) -> BasicValueEnum {
+    fn gen_expr(&self, expr: &Expression) -> Result<BasicValueEnum, &'static str> {
         match expr {
-            Expression::Literal { expr_type, value } => self.gen_literal(expr_type, value),
+            Expression::Literal { expr_type, value } => Ok(self.gen_literal(expr_type, value)?),
             Expression::BinaryOp {
                 op, left, right, ..
-            } => self.gen_binop(op, left, right),
-            Expression::Name { name, .. } => self.gen_var_ref(name),
-            Expression::Call { func, args, .. } => self.gen_call(func, args),
+            } => Ok(self.gen_binop(op, left, right)?),
+            Expression::Name { name, .. } => Ok(self.gen_var_ref(name)?),
+            Expression::Call { func, args, .. } => Ok(self.gen_call(func, args)?),
         }
     }
 
-    fn gen_var_ref(&self, name: &String) -> BasicValueEnum {
+    fn gen_var_ref(&self, name: &String) -> Result<BasicValueEnum, &'static str> {
         match self.symbol_table.get(name) {
-            Some(var) => self.builder.build_load(*var, name),
-            None => panic!(
-                "reference to undefined variable (should have been caught by semantic checker)"
-            ),
+            Some(var) => Ok(self.builder.build_load(*var, name)),
+            None => {
+                Err("reference to undefined variable (should have been caught by semantic checker)")
+            }
         }
     }
 
-    fn gen_literal(&self, expr_type: &Type, value: &str) -> BasicValueEnum {
+    fn gen_literal(&self, expr_type: &Type, value: &str) -> Result<BasicValueEnum, &'static str> {
         match expr_type {
-            Type::Int => BasicValueEnum::IntValue(
+            Type::Int => Ok(BasicValueEnum::IntValue(
                 self.context
                     .i64_type()
                     .const_int(value.parse::<i64>().unwrap() as u64, true),
-            ),
-            Type::Float32 => BasicValueEnum::FloatValue(
+            )),
+            Type::Float32 => Ok(BasicValueEnum::FloatValue(
                 self.context
                     .f32_type()
                     .const_float(value.parse::<f32>().unwrap().into()),
-            ),
-            Type::Float64 => BasicValueEnum::FloatValue(
+            )),
+            Type::Float64 => Ok(BasicValueEnum::FloatValue(
                 self.context
                     .f64_type()
                     .const_float(value.parse::<f64>().unwrap()),
-            ),
-            Type::Bool => BasicValueEnum::IntValue(
+            )),
+            Type::Bool => Ok(BasicValueEnum::IntValue(
                 self.context
                     .bool_type()
                     .const_int(value.parse::<u64>().unwrap(), true),
-            ),
-            Type::GoString => self
+            )),
+            Type::GoString => Ok(self
                 .builder
                 .build_global_string_ptr(&value.replace("\\n", "\n"), "str")
-                .as_basic_value_enum(),
+                .as_basic_value_enum()),
         }
     }
 
-    fn gen_binop(&self, op: &BinaryOp, left: &Expression, right: &Expression) -> BasicValueEnum {
-        let left_gen = self.gen_expr(left);
-        let right_gen = self.gen_expr(right);
+    fn gen_binop(
+        &self,
+        op: &BinaryOp,
+        left: &Expression,
+        right: &Expression,
+    ) -> Result<BasicValueEnum, &'static str> {
+        let left_gen = self.gen_expr(left)?;
+        let right_gen = self.gen_expr(right)?;
         match (left_gen, right_gen) {
             // Binary operation of two ints
             (BasicValueEnum::IntValue(lhs), BasicValueEnum::IntValue(rhs)) => {
-                BasicValueEnum::IntValue(match op {
+                Ok(BasicValueEnum::IntValue(match op {
                     Add => self.builder.build_int_add(lhs, rhs, "addtmp"),
                     Sub => self.builder.build_int_sub(lhs, rhs, "subtmp"),
                     Mul => self.builder.build_int_mul(lhs, rhs, "multmp"),
@@ -263,15 +276,16 @@ impl<'ctx> CodeGen<'ctx> {
                         rhs,
                         "leqtmp",
                     ),
-                })
+                }))
             }
             // Binary operation of two floats (of same size)
             (BasicValueEnum::FloatValue(lhs), BasicValueEnum::FloatValue(rhs)) => {
-                assert!(
-                    left.get_type() == right.get_type(),
-                    "cannot add float32 and float64 (should have been caught by the type checker)"
-                );
-                match op {
+                if left.get_type() != right.get_type() {
+                    return Err(
+                        "cannot perform binary operation on float32 and float64 (should have been caught by the type checker)"
+                    );
+                }
+                Ok(match op {
                     Add => BasicValueEnum::FloatValue(
                         self.builder.build_float_add(lhs, rhs, "addtmp"),
                     ),
@@ -332,44 +346,46 @@ impl<'ctx> CodeGen<'ctx> {
                             "leqtmp",
                         ))
                     }
-                }
+                })
             }
-            _ => panic!(
-                "binary operations on unsupported types (should have been caught by the type checker)"
-            ),
+            _ => Err("binary operations on unsupported types (should have been caught by the type checker)"),
         }
     }
 
-    fn gen_call(&self, func: &String, args: &[Expression]) -> BasicValueEnum {
+    fn gen_call(&self, func: &String, args: &[Expression]) -> Result<BasicValueEnum, &'static str> {
         match self.module.get_function(func) {
             Some(func_value) => {
-                let compiled_args = args
-                    .iter()
-                    .map(|x| self.gen_expr(x).into())
-                    .collect::<Vec<_>>();
+                let mut compiled_args = vec![];
+                for arg in args {
+                    compiled_args.push(self.gen_expr(arg)?.into());
+                }
                 match self
                     .builder
                     .build_call(func_value, compiled_args.as_slice(), "calltmp")
                     .try_as_basic_value()
                     .left()
                 {
-                    Some(value) => value,
+                    Some(value) => Ok(value),
                     // Because we got to return something from gen_expr, we return the
                     // magic number; It isn't used, so nothing lost there
-                    None => BasicValueEnum::IntValue(self.context.bool_type().const_int(1, true)),
+                    None => Ok(BasicValueEnum::IntValue(
+                        self.context.bool_type().const_int(1, true),
+                    )),
                 }
             }
-            None => panic!(
-                "function {} not defined (should have been caught by semantic checker)",
-                func
-            ),
+            None => Err("undefined function passed to codegen (should have been caught by semantic checker)"),
         }
     }
 
-    fn gen_if(&mut self, cond: &Expression, then_block: &[Statement], else_block: &[Statement]) {
+    fn gen_if(
+        &mut self,
+        cond: &Expression,
+        then_block: &[Statement],
+        else_block: &[Statement],
+    ) -> Result<(), &'static str> {
         let parent = self.current_function.unwrap();
 
-        let llvm_cond = self.gen_expr(cond).into_int_value();
+        let llvm_cond = self.gen_expr(cond)?.into_int_value();
 
         let then_bb = self.context.append_basic_block(parent, "then_bb");
         let else_bb = self.context.append_basic_block(parent, "else_bb");
@@ -380,15 +396,16 @@ impl<'ctx> CodeGen<'ctx> {
 
         // Then block
         self.builder.position_at_end(then_bb);
-        self.gen_block(then_block);
+        self.gen_block(then_block)?;
         self.builder.build_unconditional_branch(cont_bb);
 
         // Else block
         self.builder.position_at_end(else_bb);
-        self.gen_block(else_block);
+        self.gen_block(else_block)?;
         self.builder.build_unconditional_branch(cont_bb);
 
         // Merge/continuation block
         self.builder.position_at_end(cont_bb);
+        Ok(())
     }
 }
